@@ -34,6 +34,8 @@ from sklearn.model_selection import cross_validate
 from sklearn.metrics import recall_score, roc_curve, auc
 from sklearn.preprocessing import label_binarize
 from scipy import interp
+from sklearn.semi_supervised import LabelPropagation, LabelSpreading
+from pypcc import ParticleCompetitionAndCooperation
 
 random.seed(0)
 
@@ -134,8 +136,13 @@ class Trainer:
         self.classes = classes
     
     def train_model(self, model_name):
+        ssl = False
+        if model_name in ['LabelProp', 'LabelSpread', 'PYCC']:
+            ssl = True
+            
         train_time   = []
-        conf_mat     = np.zeros((len(self.data_classes),len(self.data_classes)))
+        conf_mat     = np.zeros((len(self.data_classes), len(self.data_classes)))
+#         print('conf_mat.shape', conf_mat.shape)
         recall       = []
         percision    = []
         f1_score     = []
@@ -155,6 +162,12 @@ class Trainer:
                 clf = DecisionTreeClassifier(max_depth=5)
             elif model_name == 'KNN':
                 clf = KNeighborsClassifier(n_neighbors=7)
+            elif model_name == 'LabelProp':
+                clf = LabelPropagation(kernel='knn')
+            elif model_name == 'LabelSpread':
+                clf = LabelSpreading(kernel='knn')
+            elif model_name == 'PYCC':
+                clf = ParticleCompetitionAndCooperation(n_neighbors=1, pgrd=0.6, delta_v=0.35, max_iter=1000)
             else:
                 return None
 
@@ -162,17 +175,26 @@ class Trainer:
             y_train = self.y[train]
             X_test  = self.X[test]
             y_test  = self.y[test]
+            
+            if ssl:
+                unlabelled_idx = np.where(y_test==-1)
+#                 print('y_test.shape, X_test.shape', y_test.shape, X_test.shape)
+                X_test = np.delete(X_test, unlabelled_idx, axis=0)
+                y_test = np.delete(y_test, unlabelled_idx)
+#                 print('y_test.shape, X_test.shape', y_test.shape, X_test.shape)
 
             # Training
             tic = time.time()
             clf.fit(X_train, y_train)
             toc = time.time()
             train_time.append(np.round(toc - tic, 3))
-
+            
             y_pred = clf.predict(X_test)
+#             print('np.unique(y_pred), np.unique(y_test)', np.unique(y_pred), np.unique(y_test))
 
             # Compute confusion matrix
             cm = confusion_matrix(y_test, y_pred)
+#             print('cm.shape', cm.shape)
             conf_mat = conf_mat + cm
 
             FP = cm.sum(axis=0) - np.diag(cm)  
@@ -210,10 +232,19 @@ class Trainer:
             clf = OneVsRestClassifier(DecisionTreeClassifier(max_depth=5))
         elif model_name == 'KNN':
             clf = OneVsRestClassifier(KNeighborsClassifier(n_neighbors=7))
+        elif model_name == 'LabelProp':
+            clf = OneVsRestClassifier(LabelPropagation(kernel='knn'))
+        elif model_name == 'LabelSpread':
+            clf = OneVsRestClassifier(LabelSpreading(kernel='knn'))
+        elif model_name == 'PYCC':
+            clf = OneVsRestClassifier(ParticleCompetitionAndCooperation(n_neighbors=1, pgrd=0.6, delta_v=0.35, max_iter=1000))
         else:
             return None
 
-        y_score = clf.fit(X_train, y_train).predict_proba(X_test)
+        if model_name is not 'PYCC':
+            y_score = clf.fit(X_train, y_train).predict_proba(X_test)
+        else:
+            y_score = clf.fit(X_train, y_train).predict(X_test)
 #         print('y_test.shape, y_score.shape', y_test.shape, y_score.shape)
         n_classes = len(self.data_classes)
         # Compute ROC curve and ROC area for each class
@@ -270,7 +301,7 @@ class Trainer:
         tables.append(t)
 
         avg_acc = np.trace(conf_mat) / sum(self.data_classes)
-        conf_mat_norm = conf_mat / self.data_classes # Normalizing the confusion matrix
+        conf_mat_norm = conf_mat / (self.data_classes) # Normalizing the confusion matrix
         tables.append(conf_mat_norm)
 
         metrics = {
@@ -303,6 +334,7 @@ def read_and_process_data(data_path):
         t.add_row([col, len(data[col].unique())])
     print(t)
     
+    data.replace(to_replace="Unknown/Invalid", value=np.nan, inplace=True)
     data.replace(to_replace="?", value=np.nan, inplace=True)
     print('---Replacing ? -> np.nan')
     data = data[data['diag_1'].notna()]
