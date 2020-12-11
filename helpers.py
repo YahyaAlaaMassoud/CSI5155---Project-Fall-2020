@@ -37,11 +37,15 @@ from scipy import interp
 
 random.seed(0)
 
-def plot_pie_chart(labels, y, n_features):
+def plot_pie_chart(labels, y, n_features, task='sl'):
     # Pie chart, where the slices will be ordered and plotted counter-clockwise:
     sizes = []
-    for i in range(len(labels)):
-        sizes.append(len(y[y==i]))
+    if task is 'sl':
+        for i in range(len(labels)):
+            sizes.append(len(y[y==i]))
+    elif task is 'ssl':
+        for i in range(-1, len(labels) - 1):
+            sizes.append(len(y[y==i]))
     explode = []
     for i in range(len(labels)):
         explode.append(sizes[i] / sum(sizes) / 10)
@@ -50,7 +54,10 @@ def plot_pie_chart(labels, y, n_features):
     ax1.pie(sizes, explode=explode, labels=labels, autopct='%1.1f%%',
             shadow=True, startangle=90)
     ax1.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-    plt.title('Combined Sampling performed after Selection of {} Features'.format(n_features))
+    if task is 'sl':
+        plt.title('Combined Sampling performed after Selection of {} Features'.format(n_features))
+    elif task is 'ssl':
+        plt.title('Perecentage of data after unlabelling {}%'.format(n_features))
     plt.show()
 
 def plot_roc_avg(all_metrics, all_clf, cls2clr, macro=False, micro=True):
