@@ -36,6 +36,9 @@ from sklearn.preprocessing import label_binarize
 from scipy import interp
 from sklearn.semi_supervised import LabelPropagation, LabelSpreading
 from pypcc import ParticleCompetitionAndCooperation
+# https://github.com/tmadl/semisup-learn
+from semisup_learn.frameworks.SelfLearning import *
+from masksemi.masksemi import maskData
 
 random.seed(0)
 
@@ -134,10 +137,10 @@ class Trainer:
         self.folds = folds
         self.data_classes = data_classes
         self.classes = classes
-    
-    def train_model(self, model_name):
+        
+    def train_model(self, model_name, unlabelled_ratio=None):
         ssl = False
-        if model_name in ['LabelProp', 'LabelSpread', 'PYCC']:
+        if model_name in ['LabelProp', 'LabelSpread', 'SelfTrain']:
             ssl = True
             
         train_time   = []
@@ -166,8 +169,8 @@ class Trainer:
                 clf = LabelPropagation(kernel='knn')
             elif model_name == 'LabelSpread':
                 clf = LabelSpreading(kernel='knn')
-            elif model_name == 'PYCC':
-                clf = ParticleCompetitionAndCooperation(n_neighbors=1, pgrd=0.6, delta_v=0.35, max_iter=1000)
+            elif model_name == 'SelfTrain':
+                clf = SelfLearningModel(ExtraTreesClassifier())
             else:
                 return None
 
@@ -176,12 +179,15 @@ class Trainer:
             X_test  = self.X[test]
             y_test  = self.y[test]
             
-            if ssl:
-                unlabelled_idx = np.where(y_test==-1)
-#                 print('y_test.shape, X_test.shape', y_test.shape, X_test.shape)
-                X_test = np.delete(X_test, unlabelled_idx, axis=0)
-                y_test = np.delete(y_test, unlabelled_idx)
-#                 print('y_test.shape, X_test.shape', y_test.shape, X_test.shape)
+            if model_name in ['LabelProp', 'LabelSpread', 'SelfTrain']:
+                X_train, y_train = X_train, maskData(y_train, 1. - unlabelled_ratio)
+            
+#             if ssl:
+#                 unlabelled_idx = np.where(y_test==-1)
+# #                 print('y_test.shape, X_test.shape', y_test.shape, X_test.shape)
+#                 X_test = np.delete(X_test, unlabelled_idx, axis=0)
+#                 y_test = np.delete(y_test, unlabelled_idx)
+# #                 print('y_test.shape, X_test.shape', y_test.shape, X_test.shape)
 
             # Training
             tic = time.time()
@@ -214,13 +220,28 @@ class Trainer:
 
             acc.append(accuracy_score(y_test, y_pred))
             balanced_acc.append(balanced_accuracy_score(y_test, y_pred))
-
-        # ROC COMPUTATION
-        # shuffle and split training and test sets
-        b = np.zeros((self.y.size, self.y.max() + 1))
-        b[np.arange(self.y.size), self.y] = 1
-        y = b
+        
+        def one_hot(x):
+            b = np.zeros((x.size, x.max() + 1))
+            b[np.arange(x.size), x] = 1
+            return b
+        
+        y = one_hot(self.y)
         X_train, X_test, y_train, y_test = train_test_split(self.X, y, test_size=.1, random_state=0, stratify=y)
+#         # ROC COMPUTATION
+#         # shuffle and split training and test sets
+#         b = np.zeros((self.y.size, self.y.max() + 1))
+#         b[np.arange(self.y.size), self.y] = 1
+#         y = b
+#         print('np.unique(y)', np.unique(y))
+#         X_train, X_test, y_train, y_test = train_test_split(self.X, self.y, test_size=.1, random_state=0, stratify=self.y)
+#         print('y_train.shape, y_test.shape', y_train.shape, y_test.shape)
+#         print('np.unique(y_test), np.unique(y_train)', np.unique(y_test), np.unique(y_train))
+        if model_name in ['LabelProp', 'LabelSpread', 'SelfTrain']:
+            y_train = np.argmax(y_train, axis=1)
+            X_train, y_train = X_train, maskData(y_train, 1. - unlabelled_ratio)
+#             print('X_train.shape, y_train.shape', X_train.shape, y_train.shape)
+#             print('np.unique(y_test), np.unique(y_train)', np.unique(y_test), np.unique(y_train))
 
         if model_name == 'XGBoost':
             clf = OneVsRestClassifier(GradientBoostingClassifier(random_state=0))
@@ -236,16 +257,14 @@ class Trainer:
             clf = OneVsRestClassifier(LabelPropagation(kernel='knn'))
         elif model_name == 'LabelSpread':
             clf = OneVsRestClassifier(LabelSpreading(kernel='knn'))
-        elif model_name == 'PYCC':
-            clf = OneVsRestClassifier(ParticleCompetitionAndCooperation(n_neighbors=1, pgrd=0.6, delta_v=0.35, max_iter=1000))
+        elif model_name == 'SelfTrain':
+            clf = SelfLearningModel(ExtraTreesClassifier())
         else:
             return None
-
-        if model_name is not 'PYCC':
-            y_score = clf.fit(X_train, y_train).predict_proba(X_test)
-        else:
-            y_score = clf.fit(X_train, y_train).predict(X_test)
-#         print('y_test.shape, y_score.shape', y_test.shape, y_score.shape)
+        
+        y_score = clf.fit(X_train, y_train).predict_proba(X_test)
+        if model_name in ['LabelProp', 'LabelSpread']:
+            y_score = y_score[:,1:]
         n_classes = len(self.data_classes)
         # Compute ROC curve and ROC area for each class
         fpr = dict()
