@@ -13,6 +13,7 @@ from sklearn.neighbors import KNeighborsClassifier # Import KNN Classifier
 from sklearn.multiclass import OneVsOneClassifier, OneVsRestClassifier
 from sklearn.ensemble import VotingClassifier
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+from sklearn.dummy import DummyClassifier
 from sklearn.preprocessing import label_binarize
 from sklearn.model_selection import train_test_split # Import train_test_split function
 from sklearn.metrics import confusion_matrix, multilabel_confusion_matrix, accuracy_score, balanced_accuracy_score, precision_recall_fscore_support, roc_auc_score #Import scikit-learn metrics module for accuracy calculation
@@ -171,6 +172,8 @@ class Trainer:
                 clf = LabelSpreading(kernel='knn')
             elif model_name == 'SelfTrain':
                 clf = SelfLearningModel(ExtraTreesClassifier())
+            elif model_name == 'Dummy':
+                clf = DummyClassifier(strategy="stratified")
             else:
                 return None
 
@@ -253,6 +256,8 @@ class Trainer:
             clf = OneVsRestClassifier(DecisionTreeClassifier(max_depth=5))
         elif model_name == 'KNN':
             clf = OneVsRestClassifier(KNeighborsClassifier(n_neighbors=7))
+        elif model_name == 'Dummy':
+            clf = OneVsRestClassifier(DummyClassifier(strategy="stratified"))
         elif model_name == 'LabelProp':
             clf = OneVsRestClassifier(LabelPropagation(kernel='knn'))
         elif model_name == 'LabelSpread':
